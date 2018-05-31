@@ -13,17 +13,18 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import math
 import time
+import os
 from datetime import datetime
 from datetime import timedelta
 
 from github import Github
 
-def github_conn():
+def github_conn(token):
   """
   set up a connection with github api
   """
 
-  g = Github('2f874b8065d8d464b9540e60b63dc3113a6328aa')
+  g = Github(token)
 
   return g
 
@@ -119,8 +120,9 @@ def main():
   query the repos based a given query statement
   """
   
+  token = os.environ['GithubToken']
   terms = '(clinical OR medical) OR (patient OR doctor)'
-  conn = github_conn()
+  conn = github_conn(token)
   repos = repos_query(conn, terms, ['2013-01-01..2013-12-31'])
   # tmranges = get_timeranges(conn, terms, 2013, 2018)
   print(len(repos))
