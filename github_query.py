@@ -17,6 +17,10 @@ import os
 from datetime import datetime
 from datetime import timedelta
 
+import pandas as pd
+import pymysql as mysql
+from sqlalchemy import create_engine
+
 from github import Github
 
 def github_conn(token):
@@ -86,16 +90,29 @@ def get_timeranges(conn, terms, cutoff, curr):
 
   while cutoff <=curr:
     timerange = search_timerange_year(2, cutoff)
-    print(timerange)
+    # print(timerange)
     pagedlist_tmp = conn.search_repositories(query = terms, created=timerange)
-    splitsize = math.ceil(pagedlist_tmp.totalCount/1000)
+    splitsize = math.ceil(pagedlist_tmp.totalCount/1000) + 2
     timerange_lst = split_time(timerange, splitsize)
     timeranges = timeranges + timerange_lst
     cutoff+=1
 
   return timeranges
 
-def repos_query(conn, terms, tmranges):
+def fetch_content(repo, contentName):
+  """
+  check if a repo has a given content
+  """
+
+  # print(repo)
+  url = repo.url + '/' + contentName
+  status = repo._requester.requestJson('GET', url)[0]
+  if status ==200:
+    return repo.get_readme().url
+  else:
+    return None
+
+def repos_query(conn, terms, tmranges, attrs, remaining_rate):
   """
   obtain repos list based on query terms
   """
@@ -103,29 +120,115 @@ def repos_query(conn, terms, tmranges):
   ## get repositories for each timerange
   repos = []
   for timerange in tmranges:
+    print("timerange is ",timerange)
+    print("Remaining rates are ", remaining_rate)
     paged_list = conn.search_repositories(query = terms, created=timerange)
     if paged_list.totalCount >1000:
       print('too many repos in this time range (', timerange, ')')
       break
-    else:
-      print(paged_list.totalCount)
-      repos_tmp = [item for item in paged_list]
+    elif remaining_rate < paged_list.totalCount*2:
+      print("no left rates, how to break")
+      conn = github_conn(os.environ['GithubToken'])
+      sleep_dur = get_sleep_time(conn)
+      time.sleep(sleep_dur)
+      paged_list = conn.search_repositories(query = terms, created=timerange)
+      repos_tmp = [[item._rawData[k] for k in attrs] + [fetch_content(item, 'readme')] for item in paged_list]
       repos = repos + repos_tmp
-      time.sleep(10)
+    else:
+      # print(paged_list.totalCount)
+      repos_tmp = [[item._rawData[k] for k in attrs] + [fetch_content(item, 'readme')] for item in paged_list]
+      repos = repos + repos_tmp
+      time.sleep(120)
+    conn = github_conn(os.environ['GithubToken'])
+    remaining_rate = conn.rate_limiting[0]
 
   return repos
+
+def mysql_insert(df):
+  """
+  insert dataframe into mysql db in gcloud
+  """
+
+  engine = create_engine('mysql+pymysql://transight:Sx$2016w@35.234.93.185:3306/github?charset=UTF8MB4')
+  df.to_sql('clinical_github', engine, if_exists='append', index=False)
+  engine.dispose()
+
+def get_sleep_time(conn):
+  """
+  Calculate the amount of seconds it needs to wait before remaining rate reset
+  """
+
+  tdelta = datetime.fromtimestamp(conn.rate_limiting_resettime) - datetime.now()
+
+  return tdelta.seconds +30 ## 30 seconds after the remaining rate reset
+
+
+def check_remain_rates(conn):
+  """
+  check whether there if any remaining rates
+  """
+
+  remaining = conn.rate_limiting[0]
+  print("left rates: ",remaining)
+  if remaining ==0:
+    print('No remaining rates left!')
+    return False
+  else:
+    return True
+
+def process(conn, terms, attrs):
+  """
+  a series of actions to split the big query and conduct divided small queries
+  """
+
+  # divide big query into smaller ones with less than 1000 repos
+  tmranges = get_timeranges(conn, terms, 2013, 2018)
+  # debugging print
+  for tmrange in tmranges:
+    print(tmrange)
+
+  conn = github_conn(os.environ['GithubToken'])
+  remaining_rate = conn.rate_limiting[0]
+  print("remaining rate after split big query: ", remaining_rate)
+  # conduct small queries
+  repos = repos_query(conn, terms, tmranges, attrs, remaining_rate)
+  print(len(repos))
+  # remove the duplicates and insert into mysql db
+  df_repos = pd.DataFrame(repos, columns=attrs+['readme_url'])
+  df = df_repos.drop_duplicates(subset=['id'])
+  df_duplicates = df_repos.loc[~df_repos.index.isin(df.index)]
+  df_duplicates.to_csv('/Users/ianshen/Documents/repos_duplicates.csv', index=False)
+  df.to_csv('/Users/ianshen/Documents/repos.csv', index=False)
+  # mysql_insert(df)
+  # print('one insertion is completed!')
 
 def main():
   """
   query the repos based a given query statement
   """
   
+  # set up configurations
   token = os.environ['GithubToken']
   terms = '(clinical OR medical) OR (patient OR doctor)'
   conn = github_conn(token)
-  repos = repos_query(conn, terms, ['2013-01-01..2013-12-31'])
-  # tmranges = get_timeranges(conn, terms, 2013, 2018)
-  print(len(repos))
+  attrs = ['id','full_name','url','description','created_at', 'updated_at', \
+          'pushed_at', 'forks', 'stargazers_count','language']
+
+  # check remaining rates before start
+  if check_remain_rates(conn):
+    print('we have rates!')  
+    process(conn, terms, attrs)
+  else:
+    sleep_dur = get_sleep_time(conn)
+    print('sleep ', sleep_dur)
+    time.sleep(sleep_dur)
+
+    # double check if the rate is larger than 0
+    try:
+      # process(conn, terms, attrs)
+      pass
+    except Exception as e:
+      raise e
 
 if __name__ == '__main__':
   main()
