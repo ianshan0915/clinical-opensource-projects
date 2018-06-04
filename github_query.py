@@ -149,7 +149,8 @@ def mysql_insert(df):
   insert dataframe into mysql db in gcloud
   """
 
-  engine = create_engine('mysql+pymysql://transight:Sx$2016w@35.234.93.185:3306/github?charset=UTF8MB4')
+  db_conn = os.environ['DbSetting']
+  engine = create_engine(db_conn)
   df.to_sql('clinical_github', engine, if_exists='append', index=False)
   engine.dispose()
 
