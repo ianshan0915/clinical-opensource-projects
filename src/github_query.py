@@ -132,11 +132,11 @@ def repos_query(conn, terms, tmranges, attrs, remaining_rate):
       sleep_dur = get_sleep_time(conn)
       time.sleep(sleep_dur)
       paged_list = conn.search_repositories(query = terms, created=timerange)
-      repos_tmp = [[item._rawData[k] for k in attrs] + [fetch_content(item, 'readme')] for item in paged_list]
+      repos_tmp = [[item._rawData[k] for k in attrs] + [fetch_content(item, 'readme')] + [item._rawData['owner']['type']] for item in paged_list]
       repos = repos + repos_tmp
     else:
       # print(paged_list.totalCount)
-      repos_tmp = [[item._rawData[k] for k in attrs] + [fetch_content(item, 'readme')] for item in paged_list]
+      repos_tmp = [[item._rawData[k] for k in attrs] + [fetch_content(item, 'readme')] + [item._rawData['owner']['type']] for item in paged_list]
       repos = repos + repos_tmp
       time.sleep(120)
     conn = github_conn(os.environ['GithubToken'])
@@ -183,7 +183,7 @@ def process(conn, terms, attrs):
   """
 
   # divide big query into smaller ones with less than 1000 repos
-  tmranges = get_timeranges(conn, terms, 2013, 2018)
+  tmranges = get_timeranges(conn, terms, 2013, 2014)
   # debugging print
   for tmrange in tmranges:
     print(tmrange)
@@ -195,7 +195,7 @@ def process(conn, terms, attrs):
   repos = repos_query(conn, terms, tmranges, attrs, remaining_rate)
   print(len(repos))
   # remove the duplicates and insert into mysql db
-  df_repos = pd.DataFrame(repos, columns=attrs+['readme_url'])
+  df_repos = pd.DataFrame(repos, columns=attrs+['readme_url','owner_type'])
   df = df_repos.drop_duplicates(subset=['id'])
   df_duplicates = df_repos.loc[~df_repos.index.isin(df.index)]
   df_duplicates.to_csv('/Users/ianshen/Documents/repos_duplicates.csv', index=False)
@@ -213,7 +213,7 @@ def main():
   terms = '(clinical OR medical) OR (patient OR doctor)'
   conn = github_conn(token)
   attrs = ['id','full_name','url','description','created_at', 'updated_at', \
-          'pushed_at', 'forks', 'stargazers_count','language']
+          'pushed_at', 'forks', 'stargazers_count', 'language', 'open_issues', 'score', 'size', 'has_pages', 'has_wiki']
 
   # check remaining rates before start
   if check_remain_rates(conn):
