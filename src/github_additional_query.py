@@ -9,6 +9,7 @@ Created on Wed August 04 2018
 Use GitHub REST API v3 to query open sourced repos related to clinical/medical
 """
 
+import os
 import requests
 import json
 
@@ -19,7 +20,10 @@ def fetch_topics(url):
   """
   fetch topics given a repo url
   """
-  headers = {'Accept': 'application/vnd.github.mercy-preview+json', 'Authorization': 'token 0871d9a1ca33296d189644fd2cafa9fe45d4e62b'}
+
+  token = os.environ['GithubToken']
+  auth = 'token ' + token
+  headers = {'Accept': 'application/vnd.github.mercy-preview+json', 'Authorization': auth}
   response = requests.request("GET", url, headers=headers)
   resp_json = response.json()
   if 'topics' in resp_json.keys():
@@ -59,7 +63,9 @@ def fetch_readme_size(url):
   """
 
   print(url)
-  headers = {'Authorization': 'token 0871d9a1ca33296d189644fd2cafa9fe45d4e62b'}
+  token = os.environ['GithubToken']
+  auth = 'token ' + token
+  headers = {'Authorization': auth}
   response = requests.request("GET", url, headers=headers)
   resp_json = response.json()
   if 'size' in resp_json.keys():
@@ -92,6 +98,7 @@ def gen_readme_size():
 
 def main():
   # do something
+
   gen_readme_size()
 
 if __name__ == '__main__':
